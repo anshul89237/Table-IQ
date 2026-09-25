@@ -55,6 +55,13 @@ jobs:
       # TIQ_MSSQL_URL is deliberately unset — mssql:2022 is a 1.5GB image for six tests, and
       # tests/sqlserver.rs skips itself when the variable is absent. Same for TIQ_PG_FULL_SEED
       # (see the seed step). Both suites run locally, where the containers are already up.
+      #
+      # The bundled DuckDB C++ library makes a debug `target/` big enough to fill the runner's
+      # ~14 GB of free disk ("No space left on device" at link time). No incremental
+      # artifacts and no debug info cut it by more than half; the test profile inherits
+      # `dev`, so this covers `cargo test` too. Panic locations don't need debug info.
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v4
 
@@ -80,6 +87,15 @@ jobs:
           psql -h 127.0.0.1 -p 55432 -U postgres -d tableiq -v ON_ERROR_STOP=1 -v rows=2000 -f docker/postgres/seed.sql
           psql -h 127.0.0.1 -p 55432 -U postgres -d tableiq -v ON_ERROR_STOP=1 -f docker/postgres/qa.sql
           mysql -h 127.0.0.1 -P 53306 -uroot -ptableiq tableiq < docker/mysql/qa.sql
+
+      # Preinstalled toolchains this job never uses (.NET, Android, Haskell, CodeQL) hold
+      # ~25 GB; dropping them is what makes room for the DuckDB build (see the env note).
+      - name: Free runner disk
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL || true
+          df -h / | tail -1
 
       - uses: dtolnay/rust-toolchain@stable
         with: { components: clippy }
